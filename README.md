@@ -1,9 +1,33 @@
 # README
-Dynamic Pipes is designed to best replicate magrittr's pipe, `%>%`, from R in Julia. 
+Dynamic Pipes is designed to best replicate magrittr's pipe, `%>%`, from R in Julia. The below R code
+```R
+library(tidyverse)
 
-<!-- TODO Write a full data wrangling example above with DataFrames, DataFramesMeta and `@>`. -->
+star_wars_summary <- starwars %>%
+  group_by(species) %>%
+  summarise(N = n()
+            ,mass = mean(mass, na.rm = TRUE)) %>%
+  filter(N > 1
+         ,mass > 50) %>% 
+  mutate(proportion = N/sum(N)) %>% 
+  arrange(desc(proportion))
+```
+is eqivelant to 
+```julia
+using DataFrames, DataFramesMeta, DynamicPipes, Statistics
+# assuming the data is already loaded in
 
-Dynamic Pipes gives similar functionality to other Julia piping packages only it allows for continuos typing without the need to call a macro before you start writing the pipe. This means the user does not have to move the cursor back to the to the start of text they typed in order to pipe it into a function. This is achieved through the `@>` macro. 
+starwars_summary = starwars |>
+    @>  groupby(:species) |>
+        @combine(N = length(:species)
+                 ,mass = mean(:mass |> skipmissing)) |>
+        @where(:N .> 1
+               ,:mass .> 50) |>
+        @transform(proportion = :N ./ sum(:N)) |>
+        @orderby(-:proportion)
+```
+
+. Dynamic Pipes gives similar functionality to other Julia piping packages only it allows for continuos typing without the need to call a macro before you start writing the pipe. This means the user does not have to move the cursor back to the to the start of text they typed in order to pipe it into a function. This is achieved through the `@>` macro. 
 
 ## `@>` 
 This macro creates an anonymous function using similar rewriting rules as R's `%>%`. The following rules apply to macros and functions. 
