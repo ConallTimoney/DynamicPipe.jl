@@ -116,6 +116,9 @@ end
 @testset "@>, @>> test pipes in pipes" begin
     x = [1,2,3]
     z = [1,1,1]
+    y_ans = (
+        (x + ((x .+ 1) .* 2)) + z .- 1 
+    ) 
     
     y = x |> 
         @>  +(x |> 
@@ -124,9 +127,7 @@ end
             _ + z |>
             .-(1)
 
-    @test y == (
-        (x + ((x .+ 1) .* 2)) + z .- 1 
-    ) 
+    @test y == y_ans
     
     y = @>> x |> 
         +(x |> 
@@ -135,9 +136,7 @@ end
         _ + z |>
         .-(1)
         
-    @test y == (
-        (x + ((x .+ 1) .* 2)) + z .- 1 
-    ) 
+    @test y == y_ans
     
     y = @>> x |> 
         +(@>> x |> 
@@ -146,9 +145,7 @@ end
         _ + z |>
         .-(1)
         
-    @test y == (
-        (x + ((x .+ 1) .* 2)) + z .- 1 
-    ) 
+    @test y == y_ans
     
     y = @>> x |> 
         +(@>> _ |> 
@@ -168,9 +165,7 @@ end
         _ + z |>
         .-(1)
         
-    @test y == (
-        (x + ((x .+ 1) .* 2) + z) .- 1  
-    )
+    @test y == y_ans
     
     y = @>> x |> 
             +(_ |> 
@@ -201,14 +196,15 @@ end
             _ + z |>
             .-(1)
         
-    @test y == (
-        (x + ((x .+ 1) .* 2) + z) .- 1  
-    )
+    @test y == y_ans
 end
 
 @testset "@>, @>> test block input" begin
     x = [1,2,3]
     z = [1,1,1]
+    y_ans = (
+        (x + ((x .+ 1) .* 2)) + z .- 1 
+    ) 
     
     y = x |> 
         @> begin 
@@ -219,9 +215,21 @@ end
             .-(1)
         end
 
-    @test y == (
-        (x + ((x .+ 1) .* 2)) + z .- 1 
-    )
+    @test y == y_ans
+    
+    
+    y = x |> 
+        @> begin 
+            +(x |> 
+                @> begin 
+                    _ .+ 1 
+                    _ .* 2
+                end) 
+            _ + z 
+            .-(1)
+        end
+
+    @test y == y_ans
     
     y = @>> begin 
             x 
@@ -232,9 +240,18 @@ end
             .-(1)
         end
 
-    @test y == (
-        (x + ((x .+ 1) .* 2)) + z .- 1 
-    )
+    @test y == y_ans
+    
+    y = @>> begin 
+            x 
+            +(_, _ |> 
+                @>  _ .+ 1 |>
+                    _ .* 2) 
+            _ + z 
+            .-(1)
+        end
+
+    @test y == y_ans
     
     y = @>> x begin 
             +(x |> 
@@ -244,7 +261,60 @@ end
             .-(1)
         end
 
-    @test y == (
-        (x + ((x .+ 1) .* 2)) + z .- 1 
-    )
+    @test y == y_ans
+    
+    y = @>> x begin 
+            +(_, _ |> 
+                @>  _ .+ 1 |>
+                    _ .* 2) 
+            _ + z 
+            .-(1)
+        end
+
+    @test y == y_ans
+    
+    y = @>> x begin 
+        +(@>> begin x  
+            _ .+ 1 
+            _ .* 2
+        end) 
+        _ + z 
+        .-(1)
+    end
+        
+    @test y == y_ans
+    
+    y = @>> x begin 
+        +(@>> x begin
+            _ .+ 1 
+            _ .* 2
+        end) 
+        _ + z 
+        .-(1)
+    end
+        
+    @test y == y_ans 
+    
+    y = @>> x begin 
+        +(_, @>> begin
+            _
+            _ .+ 1 
+            _ .* 2
+        end) 
+        _ + z 
+        .-(1)
+    end
+    
+    @test y == y_ans
+    
+    y = @>> x begin 
+        +(_, @>> _ begin
+            _ .+ 1 
+            _ .* 2
+        end) 
+        _ + z 
+        .-(1)
+    end
+    
+    @test y == y_ans
 end
