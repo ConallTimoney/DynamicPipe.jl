@@ -132,5 +132,20 @@ are equivalent to
 ```
 .
 ## TODOs/Upcoming Features
-1. Write a full data wrangling example above with DataFrames, DataFramesMeta and `@>`.
-2. Implement all of [Chain.jl](https://github.com/jkrumbiegel/Chain.jl)'s functionality in `@>` such as the `@aside` macro. Then `@>>` can simply call `@chain`
+1. Implement all of [Chain.jl](https://github.com/jkrumbiegel/Chain.jl)'s functionality in `@>` such as the `@aside` macro. Then `@>>` can simply call `@chain` when acting on blocks
+2. Allow the `⇒` character to be used in place of `|>` in the macros, example below.
+   ```julia
+    using DataFrames, DataFramesMeta, DynamicPipes, Statistics
+    # assuming the data is already loaded in
+
+    starwars_summary = starwars |>
+        @>  groupby(:species) ⇒
+            @combine(N = length(:species)
+                    ,mass = mean(:mass |> skipmissing)) ⇒
+            @where(:N .> 1
+                   ,:mass .> 50) ⇒
+            @transform(proportion = :N ./ sum(:N)) ⇒
+            @orderby(-:proportion)
+    ```
+    This gives greater visual distinction between what is a normal pipe and what is will be rewritten.
+3. Add a VS code code snippet to more easily type `⇒`. `\>` seems a good choice. 
