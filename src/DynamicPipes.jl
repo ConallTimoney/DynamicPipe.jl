@@ -7,33 +7,53 @@ export @>
 # this allows you to use pipes in pipes @>> 2 |> sum([3, @>> _ |> sqrt(_)]) == sum([3, sqrt(2)])
 function replace_first_part_of_pipe(pipe::Expr, new_arg::Symbol)
     pipe_subsection = pipe.args[3]
-    # get the first element of the pipe 
-    while pipe_subsection isa Expr 
-        if pipe_subsection.head == :call && pipe_subsection.args[1] ∈ [:|>, :.|>]
-            global previous_pipe_subsection = pipe_subsection
-            pipe_subsection = pipe_subsection.args[2]  
+    # if of the form @>> arg begin ... end 
+    if pipe.args |> length == 4 && pipe.args[end].head == :block
+        pipe.args[3], contains_underscore = rewrite_function_internal(pipe_subsection
+                                                                      ,new_arg
+                                                                      ,impute_as_first_arg = false)
+        return pipe, contains_underscore
+    else  
+        # if of the form @>> block .. end
+        if pipe_subsection.head == :block
+            pipe_subsection = pipe_subsection.args[2]
+            pipe.args[3].args[2], contains_underscore = rewrite_function_internal(pipe_subsection
+                                                                                  ,new_arg
+                                                                                  ,impute_as_first_arg = false)
+            return pipe, contains_underscore
         else
-            break
-        end  
+            # get the first element of the pipe 
+            while pipe_subsection isa Expr 
+                if pipe_subsection.head == :call && pipe_subsection.args[1] ∈ [:|>, :.|>]
+                    global previous_pipe_subsection = pipe_subsection
+                    pipe_subsection = pipe_subsection.args[2]  
+                else
+                    break
+                end     
+            end
+            contains_underscore = false
+            # rewrite the the first part of the pipe 
+            if pipe_subsection isa Expr
+                new_code, contains_underscore = rewrite_function_internal(pipe_subsection,
+                                                                        new_arg,
+                                                                        impute_as_first_arg = false)
+                # may not need to do this now we are not copying the code in rewrite_function_internal
+                pipe_subsection.args = new_code.args
+            elseif pipe_subsection == :_
+                contains_underscore = true
+                previous_pipe_subsection.args[2] = new_arg
+            end
+            return pipe, contains_underscore
+        end
     end
-    contains_underscore = false
-    # rewrite the the first part of the pipe 
-    if pipe_subsection isa Expr
-        new_code, contains_underscore = rewrite_function_internal(pipe_subsection,
-                                                                  new_arg,
-                                                                  impute_as_first_arg = false)
-        pipe_subsection.args = new_code.args
-    elseif pipe_subsection == :_
-        contains_underscore = true
-        previous_pipe_subsection.args[2] = new_arg
-    end
-    return pipe, contains_underscore
 end
 
 # function to convert the expressions between the pipes |> ... |>
-# replace underscores with the new argument and possibel impute the first arguemnt 
+# replace underscores with the new argument and possible impute the first argument 
 # if there is no underscore 
-function rewrite_function_internal(code::Expr, new_arg; impute_as_first_arg = true)
+function rewrite_function_internal(code::Expr
+                                   ,new_arg
+                                   ;impute_as_first_arg = true)
     excluded_macros = (Symbol("@>>"), Symbol("@>"))
 
     contains_underscore = false
@@ -56,8 +76,8 @@ function rewrite_function_internal(code::Expr, new_arg; impute_as_first_arg = tr
             end
         end
     end
-    
-    # if does not conatin and we are imputeing the first arguemnt
+
+    # if does not contain and we are imputing the first argument
     if impute_as_first_arg && !contains_underscore
         if  code.head == :call
             if length(code.args) > 1 
@@ -85,8 +105,14 @@ function rewrite_function_internal(code::Expr, new_arg; impute_as_first_arg = tr
 end 
 
 
-function rewrite_function_internal(code::Symbol, new_arg) 
-    return :($code($new_arg)), nothing
+function rewrite_function_internal(code::Symbol, new_arg::Symbol; impute_as_first_arg = true)
+    if code == :_ 
+        return new_arg, true
+    elseif impute_as_first_arg 
+        return :($code($new_arg)), false
+    else 
+        return code, false
+    end
 end
 
 # function to recursivly convert the internal parts of the pipe, |> ... |>
@@ -150,6 +176,7 @@ function rewrite_block(code; evaluate_pipe = false)
                 pipe = Expr(:call, :|>, pipe, func)
             end
         end
+        
         return form_pipe(pipe.args[1],
                         pipe.args[2], 
                         :($new_arg -> $(rewrite_function_internal(pipe.args[end], new_arg)[1])),
@@ -163,7 +190,6 @@ function rewrite_block(code; evaluate_pipe = false)
         end
     end
 end
-
 
 """
     @>(code)
@@ -179,18 +205,28 @@ The functions are created using the following rules:
 `x -> print(x)`
 4. The above 2 rules are applied to expressions separate by the pipe operator, `|>`. Hence 
 `@> [_, 1, 2] |> sum()` is equivalent to `x -> [x, 1, 2] |> x -> sum(x)`
-5. These rules also apply to macros, with the exception of @> and @>>. Hence `@> @show`  
+5. These rules also apply to macros, with the exception of @> and @>>.`  
+6. The input can also be a `begin end block`. A separate function is created for each line in the 
+block with result of previous function passed into the next using the re-writing rules. 
 
 The macro can also be used in itself. Although will often require the use of brackets to get the 
 desired effect. 
 
-Example: 
+Examples: 
 ```julia-repl
 julia> 1 |>
            @>  [_ |> @>(_ + 2), 1, 1] |>
                sum
 5
+```
 
+```julia-repl
+julia> 1 |>
+           @>  begin
+                [1, 1, _ |> @> +(1, 2)] 
+                sum
+            end
+6
 ```
 """
 macro >(code::Symbol)
@@ -211,18 +247,28 @@ The functions are created using the following rules:
 `x -> print(x)`
 4. The above 2 rules are applied to expressions separate by the pipe operator, `|>`. Hence 
 `@> [_, 1, 2] |> sum()` is equivalent to `x -> [x, 1, 2] |> x -> sum(x)`
-5. These rules also apply to macros, with the exception of @> and @>>. Hence `@> @show`  
+5. These rules also apply to macros, with the exception of @> and @>>.`  
+6. The input can also be a `begin end block`. A separate function is created for each line in the 
+block with result of previous function passed into the next using the re-writing rules. 
 
 The macro can also be used in itself. Although will often require the use of brackets to get the 
 desired effect. 
 
-Example: 
+Examples: 
 ```julia-repl
 julia> 1 |>
            @>  [_ |> @>(_ + 2), 1, 1] |>
                sum
 5
+```
 
+```julia-repl
+julia> 1 |>
+           @>  begin
+                [1, 1, _ |> @> +(1, 2)] 
+                sum
+            end
+6
 ```
 """
 macro >(code::Expr)
@@ -250,18 +296,28 @@ The functions are created using the following rules:
 `x -> print(x)`
 4. The above 2 rules are applied to expressions separate by the pipe operator, `|>`. Hence 
 `@> [_, 1, 2] |> sum()` is equivalent to `x -> [x, 1, 2] |> x -> sum(x)`
-5. These rules also apply to macros, with the exception of @> and @>>. Hence `@> @show`  
+5. These rules also apply to macros, with the exception of @> and @>>.`  
+6. The input can also be a `begin end block`. A separate function is created for each line in the 
+block with result of previous function passed into the next using the re-writing rules. 
 
 The macro can also be used in itself. Although will often require the use of brackets to get the 
 desired effect. 
 
-Example: 
+Examples: 
 ```julia-repl
 julia> 1 |>
            @>  [_ |> @>(_ + 2), 1, 1] |>
                sum
 5
+```
 
+```julia-repl
+julia> 1 |>
+            @>  begin
+            [1, 1, _ |> @> +(1, 2)] 
+            sum
+        end
+6
 ```
 """
 macro >(code)
@@ -270,7 +326,6 @@ end
 
 
 
-
 """
     @>>(code)
     
@@ -287,17 +342,27 @@ The functions are created using the following rules:
 4. The above 2 rules are applied to expressions separated by the pipe operator, `|>`. Hence 
 `@>> 1 |> [_, 1, 2] |> sum()` is equivalent to `1 |> x -> [x, 1, 2] |> x -> sum(x)`
 5. These rules also applied to macros, with the exception of @> and @>>. Hence `@>> "hello world" |> @show` 
-is equivalent to `"hello world" |> @show(_)` 
+is equivalent to `@>> "hello world" |> @show(_)` 
 6. The macro can also be used in itself. If the @>> appears within itself or @> and _ is in the first 
 section of the pipe then it comes from the surrounding context. See the example below.  
+7. Instead of pipe characters, |>, separating the different functions that to be created a `begin ... end` 
+block can be used with and separate function is created for each line in the block. See the example below. 
 
-Example: 
+Examples: 
 ```julia-repl
 julia> @>> 1 |>
-            [(@>> _ |> +(2)), 1, 1] |>
+            [(@>> _ |> +(1, 2)), 1, 1] |>
             sum
-5
+6
+```
 
+```julia-repl
+julia> @>> begin 
+            1 
+            [(@>> _ |> _ + 2), 1, 1] 
+            sum
+        end
+5
 ```
 """
 macro >>(code::Expr)
@@ -308,7 +373,7 @@ macro >>(code::Expr)
     end
 end
 
-
+# below should have the same doc string as >>(code::Expr)
 """
     @>>(code)
     
@@ -325,42 +390,117 @@ The functions are created using the following rules:
 4. The above 2 rules are applied to expressions separated by the pipe operator, `|>`. Hence 
 `@>> 1 |> [_, 1, 2] |> sum()` is equivalent to `1 |> x -> [x, 1, 2] |> x -> sum(x)`
 5. These rules also applied to macros, with the exception of @> and @>>. Hence `@>> "hello world" |> @show` 
-is equivalent to `"hello world" |> @show(_)` 
+is equivalent to `@>> "hello world" |> @show(_)` 
 6. The macro can also be used in itself. If the @>> appears within itself or @> and _ is in the first 
 section of the pipe then it comes from the surrounding context. See the example below.  
+7. Instead of pipe characters, |>, separating the different functions that to be created a `begin ... end` 
+block can be used with and separate function is created for each line in the block. See the example below. 
 
-Example: 
+Examples: 
 ```julia-repl
 julia> @>> 1 |>
-            [(@>> _ |> +(2)), 1, 1] |>
+            [(@>> _ |> +(1, 2)), 1, 1] |>
             sum
-5
+6
+```
 
+```julia-repl
+julia> @>> begin 
+            1 
+            [(@>> _ |> _ + 2), 1, 1] 
+            sum
+        end
+5
 ```
 """
 macro >>(code)
-    error("@>> can only act on expressions containing a pipe, |>, not $(typeof(code)).")
+    error("@>> can only act on expressions containing a pipe, |>, or a `begin ... end` block not $(typeof(code)).")
 end
 
+"""
+    @>>(first_arg, pipe::Expr)
+    
+Rewrites `pipe` into an anonymous function and passes `first_arg` into it. `pipe` must be a `begin ... end` block. 
+A function is created for each line in the `begin ... end` block. The result of the previous function is passed 
+into the next. 
 
+The pipe is created using the following rules:
+1. Underscores are treated as the function argument. `@>> [1,2,3] begin sum(_) end` is equivalent to 
+`[1,2,3] |> x -> sum(x)`
+2. If the is no underscore in the expression then then the the first argument is imputed,
+`@>> [1,2,3] begin .+(3) end` is equivalent to `[1,2,3] |> x -> .+(x, 3)`
+3. If expression is a symbol then it is treated as function so `@>> "hello world" begin print end` is interpreted as 
+`"hello world" |> x -> print(x)`
+4. The above 2 rules are applied to each line of a begin end block. Hence 
+```
+    @>> 1 begin 
+        [_, 1, 2] 
+        sum()
+    end
+``` 
+is equivalent to `1 |> x -> [x, 1, 2] |> x -> sum(x)`
+5. These rules also applied to macros, with the exception of @> and @>>. Hence `@>> "hello world" begin @show end` 
+is equivalent to `"hello world" |> x -> @show(x )` 
+6. The macro can also be used in itself. If the @>> appears within itself or @> and _ is in the first 
+section of the pipe then it comes from the surrounding context. See the example below.  
+
+Examples: 
+```julia-repl
+julia> @>> 1 begin
+            [(@>> _ |> +(2)), 1, 1] 
+            sum
+        end
+5
+```
+"""
 macro >>(first_arg, pipe::Expr)
     if pipe.head == :block
         pipe.args = [first_arg, pipe.args...]
-        return :(@>> $pipe)
+        return esc(:(@>> $pipe))
     end
     error("When @>> is acting on 2 arguments the second argument must be a \"begin ... end\" block expression.")
 end
 
+# below should have the same docstring as @>>(first_arg, pipe::Expr)
+"""
+    @>>(first_arg, pipe::Expr)
+    
+Rewrites `pipe` into an anonymous function and passes `first_arg` into it. `pipe` must be a `begin ... end` block. 
+A function is created for each line in the `begin ... end` block. The result of the previous function is passed 
+into the next. 
+
+The pipe is created using the following rules:
+1. Underscores are treated as the function argument. `@>> [1,2,3] begin sum(_) end` is equivalent to 
+`[1,2,3] |> x -> sum(x)`
+2. If the is no underscore in the expression then then the the first argument is imputed,
+`@>> [1,2,3] begin .+(3) end` is equivalent to `[1,2,3] |> x -> .+(x, 3)`
+3. If expression is a symbol then it is treated as function so `@>> "hello world" begin print end` is interpreted as 
+`"hello world" |> x -> print(x)`
+4. The above 2 rules are applied to each line of a begin end block. Hence 
+```
+    @>> 1 begin 
+        [_, 1, 2] 
+        sum()
+    end
+``` 
+is equivalent to `1 |> x -> [x, 1, 2] |> x -> sum(x)`
+5. These rules also applied to macros, with the exception of @> and @>>. Hence `@>> "hello world" begin @show end` 
+is equivalent to `"hello world" |> x -> @show(x )` 
+6. The macro can also be used in itself. If the @>> appears within itself or @> and _ is in the first 
+section of the pipe then it comes from the surrounding context. See the example below.  
+
+Examples: 
+```julia-repl
+julia> @>> 1 begin
+            [(@>> _ |> +(2)), 1, 1] 
+            sum
+        end
+5
+```
+"""
 macro >>(first_arg, second_arg)
     error("When @>> is acting on 2 arguments the second argument must be a \"begin ... end\" block expression not $(typeof(second_arg)). ")
 end
 
-macro >>(code::Expr)
-    if code.head == :block
-        return :($(esc(rewrite_block(code, evaluate_pipe = true))))
-    else 
-        return :($(esc(rewrite_code(code, evaluate_pipe = true))))
-    end
-end
 
 end #module
