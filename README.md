@@ -147,5 +147,5 @@ are equivalent to
             @transform(proportion = :N ./ sum(:N)) ⇒
             @orderby(-:proportion)
     ```
-    This gives greater visual distinction between what is a normal pipe and what is will be rewritten.
+    This gives greater visual distinction between what is a normal pipe and what will be rewritten.
 3. Add a VS code code snippet to more easily type `⇒`. `\>` seems a good choice. 
