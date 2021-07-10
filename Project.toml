@@ -3,4 +3,7 @@ uuid = "e2608387-6d34-4676-ab1d-f98b51cb1878"
 authors = ["Conall Timoney <conalltimoney@gmail.com>"]
 version = "0.1.0"
 
+[compat]
+julia = "1"
+
 [deps]
