@@ -1,5 +1,5 @@
 using Test
-using DynamicPipes
+using DynamicPipe
 
 # basic tests 
 @testset "@>, @>> pipeing into one function" begin

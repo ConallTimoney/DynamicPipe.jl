@@ -14,7 +14,7 @@ star_wars_summary <- starwars %>%
 ```
 is eqivelant to 
 ```julia
-using DataFrames, DataFramesMeta, DynamicPipes, Statistics
+using DataFrames, DataFramesMeta, DynamicPipe, Statistics
 # assuming the data is already loaded in
 
 starwars_summary = starwars |>
@@ -135,7 +135,7 @@ are equivalent to
 1. Implement all of [Chain.jl](https://github.com/jkrumbiegel/Chain.jl)'s functionality in `@>` such as the `@aside` macro. Then `@>>` can simply call `@chain` when acting on blocks
 2. Allow the `⇒` character to be used in place of `|>` in the macros, example below.
    ```julia
-    using DataFrames, DataFramesMeta, DynamicPipes, Statistics
+    using DataFrames, DataFramesMeta, DynamicPipe, Statistics
     # assuming the data is already loaded in
 
     starwars_summary = starwars |>

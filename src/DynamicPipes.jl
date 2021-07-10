@@ -1,4 +1,4 @@
-module DynamicPipes
+module DynamicPipe
 
 export @>>
 export @> 
