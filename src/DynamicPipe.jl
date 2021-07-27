@@ -1,6 +1,5 @@
 module DynamicPipe
 
-using Base: Symbol
 export @>>
 export @> 
 
