@@ -1,15 +1,31 @@
 module DynamicPipe
 
+using Base: Symbol
 export @>>
 export @> 
 
+pipe_symbols = [:|>, :.|>]
+
+function get_first_part_of_pipe(pipe)
+    global pipe_subsection = pipe
+    while pipe_subsection isa Expr 
+        if pipe_subsection.head == :call && pipe_subsection.args[1] ∈ pipe_symbols
+            # previous_pipe_subsection for when the first part is just _ as we can't re write this in-place 
+            global previous_pipe_subsection = pipe_subsection
+            global pipe_subsection = pipe_subsection.args[2]
+        else 
+            break
+    end end
+    return pipe_subsection, previous_pipe_subsection
+end
+
 # function to impute the first part of @>> if it contains underscores 
 # this allows you to use pipes in pipes @>> 2 |> sum([3, @>> _ |> sqrt(_)]) == sum([3, sqrt(2)])
-function replace_first_part_of_pipe(pipe::Expr, new_arg::Symbol)
+function rewrite_first_part_of_pipe_macro(pipe::Expr, new_arg::Symbol)
     pipe_subsection = pipe.args[3]
     # if of the form @>> arg begin ... end 
-    if pipe.args |> length == 4 && pipe.args[end].head == :block
-        pipe.args[3], contains_underscore = rewrite_function_internal(pipe_subsection
+    if (pipe.args |> length) == 4 && pipe.args[end].head == :block
+        pipe.args[3], contains_underscore =create_internal_function_code(pipe_subsection
                                                                       ,new_arg
                                                                       ,impute_as_first_arg = false)
         return pipe, contains_underscore
@@ -17,26 +33,18 @@ function replace_first_part_of_pipe(pipe::Expr, new_arg::Symbol)
         # if of the form @>> block .. end
         if pipe_subsection.head == :block
             pipe_subsection = pipe_subsection.args[2]
-            pipe.args[3].args[2], contains_underscore = rewrite_function_internal(pipe_subsection
-                                                                                  ,new_arg
-                                                                                  ,impute_as_first_arg = false)
+            pipe.args[3].args[2], contains_underscore = create_internal_function_code(pipe_subsection
+                                                                                      ,new_arg
+                                                                                      ,impute_as_first_arg = false)
             return pipe, contains_underscore
         else
-            # get the first element of the pipe 
-            while pipe_subsection isa Expr 
-                if pipe_subsection.head == :call && pipe_subsection.args[1] ∈ [:|>, :.|>]
-                    global previous_pipe_subsection = pipe_subsection
-                    pipe_subsection = pipe_subsection.args[2]  
-                else
-                    break
-                end     
-            end
+            pipe_subsection, previous_pipe_subsection = get_first_part_of_pipe(pipe_subsection)
             contains_underscore = false
             # rewrite the the first part of the pipe 
             if pipe_subsection isa Expr
-                new_code, contains_underscore = rewrite_function_internal(pipe_subsection,
-                                                                        new_arg,
-                                                                        impute_as_first_arg = false)
+                new_code, contains_underscore = create_internal_function_code(pipe_subsection,
+                                                                              new_arg,
+                                                                              impute_as_first_arg = false)
                 # may not need to do this now we are not copying the code in rewrite_function_internal
                 pipe_subsection.args = new_code.args
             elseif pipe_subsection == :_
@@ -50,10 +58,10 @@ end
 
 # function to convert the expressions between the pipes |> ... |>
 # replace underscores with the new argument and possible impute the first argument 
-# if there is no underscore 
-function rewrite_function_internal(code::Expr
-                                   ,new_arg
-                                   ;impute_as_first_arg = true)
+# if there is no underscore  
+function create_internal_function_code(code::Expr
+                                      ,new_arg::Symbol
+                                      ;impute_as_first_arg = true)
     excluded_macros = (Symbol("@>>"), Symbol("@>"))
 
     contains_underscore = false
@@ -61,51 +69,81 @@ function rewrite_function_internal(code::Expr
     loop_start_point = code.head ∈ [:call, :kw] ? min(2, length(code.args)) :
                        code.head == :macrocall ? min(3, length(code.args)) : 
                        1
-
+                       
+    new_code = copy(code)
+    if new_code.head == :macrocall
+        if new_code.args[1] ∈ excluded_macros
+            if new_code.args[1] == Symbol("@>>")
+                return  rewrite_first_part_of_pipe_macro(new_code, new_arg)
+            else # it is a @> macro
+                return new_code, false
+            end
+        end
+    end
     # loop through replacing underscores with the new argument         
-    for (location, arg) in [enumerate(code.args)...][loop_start_point:end]
+    for (location, arg) in [enumerate(new_code.args)...][loop_start_point:end]
         if arg == :_
-            code.args[location] =  new_arg
+            new_code.args[location] =  new_arg
             contains_underscore = true 
         elseif arg isa Expr
-            if arg.head ≠ :macrocall || (arg.head == :macrocall && arg.args[1] ∉ excluded_macros)
-                code.args[location], had_underscore = rewrite_function_internal(arg, new_arg, impute_as_first_arg = false)
+            if arg.head == :call && arg.args[1] ∈ pipe_symbols
+                # new_arg = gensym()
+                if arg.args[end] isa Expr
+                    if arg.args[end].head == :macrocall
+                        if arg.args[end].args[1] == Symbol("@>") # we don't want to rewrite this 
+                            arg.args[2], had_underscore = create_internal_function_code(arg.args[2], new_arg, impute_as_first_arg = false)
+                            contains_underscore = contains_underscore || had_underscore
+                            continue
+                end end end 
+                
+                new_code.args[location], had_underscore = form_pipe(arg.args[1]
+                                                                ,arg.args[2]
+                                                                ,:($new_arg -> $(create_internal_function_code(arg.args[end], new_arg)[1]))
+                                                                ,new_arg
+                                                                ,rewrite_first_part = true
+                                                                ,outer_pipe_arg = new_arg)
+                contains_underscore = contains_underscore || had_underscore
+            
+            
+            elseif arg.head ≠ :macrocall || (arg.head == :macrocall && arg.args[1] ∉ excluded_macros)
+                new_code.args[location], had_underscore = create_internal_function_code(arg, new_arg, impute_as_first_arg = false)
                 contains_underscore = had_underscore || contains_underscore
             elseif arg.head == :macrocall && arg.args[1] == Symbol("@>>")
-                code.args[location], contains_underscore = replace_first_part_of_pipe(arg, new_arg)
+                new_code.args[location], had_underscore = rewrite_first_part_of_pipe_macro(arg, new_arg)
+                contains_underscore = contains_underscore || had_underscore
             end
         end
     end
 
     # if does not contain and we are imputing the first argument
     if impute_as_first_arg && !contains_underscore
-        if  code.head == :call
-            if length(code.args) > 1 
-                code.args = [code.args[1], new_arg, code.args[2:end]...]
+        if  new_code.head == :call
+            if length(new_code.args) > 1 
+                new_code.args = [new_code.args[1], new_arg, new_code.args[2:end]...]
             else 
-                code.args = [code.args[1], new_arg]
+                new_code.args = [new_code.args[1], new_arg]
             end
-        elseif code.head == :macrocall 
-            if code.args[1] ∉ excluded_macros
-                if length(code.args) > 2
-                    code.args = [code.args[1], code.args[2], new_arg, code.args[3:end]...]
+        elseif new_code.head == :macrocall 
+            if new_code.args[1] ∉ excluded_macros
+                if length(new_code.args) > 2
+                    new_code.args = [new_code.args[1], new_code.args[2], new_arg, new_code.args[3:end]...]
                 else
-                    code.args = [code.args[1], code.args[2], new_arg]
+                    new_code.args = [new_code.args[1], new_code.args[2], new_arg]
                 end   
             end
         #vectorised function handling 
-        elseif code.head == :.
-            if !(code.args[2] isa QuoteNode)
-                code.args[2].args = [new_arg, code.args[2].args...]
+        elseif new_code.head == :.
+            if !(new_code.args[2] isa QuoteNode)
+                new_code.args[2].args = [new_arg, new_code.args[2].args...]
             end
         end
     end
-    
-    return code, contains_underscore
+    return new_code, contains_underscore
 end 
 
 
-function rewrite_function_internal(code::Symbol, new_arg::Symbol; impute_as_first_arg = true)
+
+function create_internal_function_code(code::Symbol, new_arg::Symbol; impute_as_first_arg = true)
     if code == :_ 
         return new_arg, true
     elseif impute_as_first_arg 
@@ -115,57 +153,97 @@ function rewrite_function_internal(code::Symbol, new_arg::Symbol; impute_as_firs
     end
 end
 
+function create_internal_function_code(code, new_arg::Symbol; impute_as_first_arg = true)
+    return code, false
+end
+
+function create_anonymous_function(code
+                                   ,new_arg::Symbol
+                                   ;impute_as_first_arg = true)
+
+    new_internal_code, had_underscore = create_internal_function_code(code, new_arg, impute_as_first_arg = impute_as_first_arg)
+    return :($new_arg -> $new_internal_code), had_underscore
+end
+
+function create_anonymous_function(code::Expr
+                                   ,new_arg::Symbol
+                                   ;impute_as_first_arg = true)
+    # don't do anything if @> macrocall 
+    if code.head == :macrocall
+        if code.args[1]  == Symbol("@>")
+            return code, false
+        end    
+    end    
+    new_internal_code, had_underscore = create_internal_function_code(code, new_arg, impute_as_first_arg = impute_as_first_arg)
+    return :($new_arg -> $new_internal_code), had_underscore
+end
+
+
 # function to recursivly convert the internal parts of the pipe, |> ... |>
-function form_pipe(pipe_func, first_part, second_part, new_arg; evaluate_pipe = false)
+function form_pipe(pipe_func, first_part, second_part, new_arg; rewrite_first_part = false, outer_pipe_arg = nothing)
     # if we have not yet got to the start of the pipe  
     if first_part isa Expr
         if first_part.head == :call 
-            if first_part.args[1] ∈ [:|>, :.|>]
+            if first_part.args[1] ∈ pipe_symbols
                 return form_pipe(first_part.args[1],
                                 first_part.args[2],
-                                :($new_arg -> $(Expr(:call, pipe_func, rewrite_function_internal(first_part.args[end], new_arg)[1], second_part))),
+                                #Expr(:call, pipe_func, create_anonymous_function(first_part.args[end], new_arg)[1], second_part),
+                                :($new_arg -> $(Expr(:call, pipe_func, create_internal_function_code(first_part.args[end], new_arg)[1], second_part))),
                                 new_arg,
-                                evaluate_pipe = evaluate_pipe)
+                                rewrite_first_part = rewrite_first_part,
+                                outer_pipe_arg = outer_pipe_arg)
             end
         end
     end
     # we are at the start of the pipe 
-    if !evaluate_pipe 
-        return :($new_arg -> $(Expr(:call, pipe_func, rewrite_function_internal(first_part, new_arg)[1], second_part)))
+    if rewrite_first_part 
+         if outer_pipe_arg |> isnothing 
+            #Expr(:call, pipe_func, create_anonymous_function(first_part, new_arg)[1], second_part)
+            return :($new_arg -> $(Expr(:call, pipe_func, create_internal_function_code(first_part, new_arg)[1], second_part)))
+         else 
+            # we are in forming a pipe in a pipe so we need to know if there is an underscore in the first part
+            new_first_part, has_underscore = create_internal_function_code(first_part, outer_pipe_arg, impute_as_first_arg = false)
+            return Expr(:call, pipe_func, new_first_part, second_part), has_underscore
+         end
     else
         return Expr(:call, pipe_func, first_part, second_part)
     end    
 end 
 
 # function that writes the supplied expression 
-function rewrite_code(code::Expr; evaluate_pipe = false)
-    new_arg = gensym(:_)
+function rewrite_code(code::Expr; rewrite_first_part = false)
+    new_arg = gensym()
     if code.head == :call 
-        if code.args[1] ∈ [:|>, :.|>]
+        if code.args[1] ∈ pipe_symbols
             return form_pipe(code.args[1],
                             code.args[2], 
-                            :($new_arg -> $(rewrite_function_internal(code.args[end], new_arg)[1])),
+                            #create_anonymous_function(code.args[end], new_arg)[1],
+                            :($new_arg -> $(create_internal_function_code(code.args[end], new_arg)[1])),
                             new_arg,
-                            evaluate_pipe = evaluate_pipe)
+                            rewrite_first_part = rewrite_first_part,
+                            outer_pipe_arg = nothing)
         end
     end 
-    if evaluate_pipe
+    if !rewrite_first_part
         error("If not acting on block @>> must contain at least one pipe, |>.")
     else 
-        return :($new_arg ->  $(rewrite_function_internal(code, new_arg)[1]))
+        return create_anonymous_function(code, new_arg)[1]
+        # return :($new_arg ->  $create_internal_function_code(code, new_arg)[1]))
     end
 end
 
 
 function rewrite_code(code::Symbol)
-    new_arg = gensym(:_)
-    return :($new_arg -> $(rewrite_function_internal(code, new_arg)[1]))
+    new_arg = gensym()
+    return create_anonymous_function(code, new_arg)[1]
+    # return :($new_arg -> $create_internal_function_code(code, new_arg)[1]))
 end
 
 
 # convert block of code to a function 
-function rewrite_block(code; evaluate_pipe = false)
-    new_arg = gensym(:_)
+function rewrite_block(code; rewrite_first_part = false)
+    new_arg = gensym()
+    # just get the functions remove the line line nodes 
     functions = code.args[map((!(x -> isa(x, LineNumberNode))), code.args)]
     
     # transform into a pipe so we can use form_pipe
@@ -179,14 +257,15 @@ function rewrite_block(code; evaluate_pipe = false)
         
         return form_pipe(pipe.args[1],
                         pipe.args[2], 
-                        :($new_arg -> $(rewrite_function_internal(pipe.args[end], new_arg)[1])),
+                        :($new_arg -> $(create_internal_function_code(pipe.args[end], new_arg)[1])),
+                        #create_anonymous_function(pipe.args[end], new_arg)[1],
                         new_arg,
-                        evaluate_pipe = evaluate_pipe)
+                        rewrite_first_part = rewrite_first_part)
     else
-        if evaluate_pipe
+        if !rewrite_first_part
             error("If @>> is acting on a block then the block must contain multiple lines.")
         else 
-            return :($new_arg ->  $(rewrite_function_internal(functions[1], new_arg)[1]))
+            return create_anonymous_function(functions[1], new_arg)[1]
         end
     end
 end
@@ -273,9 +352,9 @@ julia> 1 |>
 """
 macro >(code::Expr)
     if code.head == :block
-        return :($(esc(rewrite_block(code))))
+        return :($(esc(rewrite_block(code, rewrite_first_part = true))))
     else
-        return :($(esc(rewrite_code(code))))
+        return :($(esc(rewrite_code(code, rewrite_first_part = true))))
     end
 end
 
@@ -367,9 +446,9 @@ julia> @>> begin
 """
 macro >>(code::Expr)
     if code.head == :block
-        return :($(esc(rewrite_block(code, evaluate_pipe = true))))
+        return :($(esc(rewrite_block(code, rewrite_first_part = false))))
     else 
-        return :($(esc(rewrite_code(code, evaluate_pipe = true))))
+        return :($(esc(rewrite_code(code, rewrite_first_part = false))))
     end
 end
 
