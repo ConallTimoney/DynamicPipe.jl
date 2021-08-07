@@ -286,6 +286,9 @@ The functions are created using the following rules:
 5. These rules also apply to macros, with the exception of @> and @>>.`  
 6. The input can also be a `begin end block`. A separate function is created for each line in the 
 block with result of previous function passed into the next using the re-writing rules. 
+7. If there is a sequence of pipe characters within a sequence of pipe characters then a new pipe is 
+is created if the first part of the pipe does not contain an underscore so @> [_, 2, sqrt(36) |> _/2] 
+is equivalent to x -> [x, 3, sqrt(36) |> y -> y/2]. 
 
 The macro can also be used in itself. Although will often require the use of brackets to get the 
 desired effect. 
@@ -328,6 +331,9 @@ The functions are created using the following rules:
 5. These rules also apply to macros, with the exception of @> and @>>.`  
 6. The input can also be a `begin end block`. A separate function is created for each line in the 
 block with result of previous function passed into the next using the re-writing rules. 
+7. If there is a sequence of pipe characters within a sequence of pipe characters then a new pipe is 
+is created if the first part of the pipe does not contain an underscore so @> [_, 2, sqrt(36) |> _/2] 
+is equivalent to x -> [x, 3, sqrt(36) |> y -> y/2]. 
 
 The macro can also be used in itself. Although will often require the use of brackets to get the 
 desired effect. 
@@ -377,6 +383,9 @@ The functions are created using the following rules:
 5. These rules also apply to macros, with the exception of @> and @>>.`  
 6. The input can also be a `begin end block`. A separate function is created for each line in the 
 block with result of previous function passed into the next using the re-writing rules. 
+7. If there is a sequence of pipe characters within a sequence of pipe characters then a new pipe is 
+is created if the first part of the pipe does not contain an underscore so @> [_, 2, sqrt(36) |> _/2] 
+is equivalent to x -> [x, 3, sqrt(36) |> y -> y/2]. 
 
 The macro can also be used in itself. Although will often require the use of brackets to get the 
 desired effect. 
@@ -391,10 +400,10 @@ julia> 1 |>
 
 ```julia-repl
 julia> 1 |>
-            @>  begin
-            [1, 1, _ |> @> +(1, 2)] 
-            sum
-        end
+           @>  begin
+                [1, 1, _ |> @> +(1, 2)] 
+                sum
+            end
 6
 ```
 """
@@ -425,6 +434,9 @@ is equivalent to `@>> "hello world" |> @show(_)`
 section of the pipe then it comes from the surrounding context. See the example below.  
 7. Instead of pipe characters, |>, separating the different functions that to be created a `begin ... end` 
 block can be used with and separate function is created for each line in the block. See the example below. 
+7. If there is a sequence of pipe characters within a sequence of pipe characters then a new pipe is 
+is created if the first part of the pipe does not contain an underscore so @>> 1 |> [_, 2, sqrt(36) |> _/2]
+is equivalent to 1 |> x -> [x, 3, sqrt(36) |> y -> y/2]. 
 
 Examples: 
 ```julia-repl
@@ -473,6 +485,9 @@ is equivalent to `@>> "hello world" |> @show(_)`
 section of the pipe then it comes from the surrounding context. See the example below.  
 7. Instead of pipe characters, |>, separating the different functions that to be created a `begin ... end` 
 block can be used with and separate function is created for each line in the block. See the example below. 
+7. If there is a sequence of pipe characters within a sequence of pipe characters then a new pipe is 
+is created if the first part of the pipe does not contain an underscore so @>> 1 |> [_, 2, sqrt(36) |> _/2]
+is equivalent to 1 |> x -> [x, 3, sqrt(36) |> y -> y/2]. 
 
 Examples: 
 ```julia-repl
@@ -521,6 +536,15 @@ is equivalent to `1 |> x -> [x, 1, 2] |> x -> sum(x)`
 is equivalent to `"hello world" |> x -> @show(x )` 
 6. The macro can also be used in itself. If the @>> appears within itself or @> and _ is in the first 
 section of the pipe then it comes from the surrounding context. See the example below.  
+7. If there is a sequence of pipe characters within a sequence of pipe characters then a new pipe is 
+is created if the first part of the pipe does not contain an underscore so 
+```
+    @>> 1 begin  
+        [_, 2, sqrt(36) |> _/2]
+    end 
+    
+````
+is equivalent to 1 |> x -> [x, 3, sqrt(36) |> y -> y/2]. 
 
 Examples: 
 ```julia-repl
@@ -538,7 +562,7 @@ macro >>(first_arg, pipe::Expr)
     end
     error("When @>> is acting on 2 arguments the second argument must be a \"begin ... end\" block expression.")
 end
-
+@>>
 # below should have the same docstring as @>>(first_arg, pipe::Expr)
 """
     @>>(first_arg, pipe::Expr)
@@ -566,6 +590,15 @@ is equivalent to `1 |> x -> [x, 1, 2] |> x -> sum(x)`
 is equivalent to `"hello world" |> x -> @show(x )` 
 6. The macro can also be used in itself. If the @>> appears within itself or @> and _ is in the first 
 section of the pipe then it comes from the surrounding context. See the example below.  
+7. If there is a sequence of pipe characters within a sequence of pipe characters then a new pipe is 
+is created if the first part of the pipe does not contain an underscore so 
+```
+    @>> 1 begin  
+        [_, 2, sqrt(36) |> _/2]
+    end 
+    
+````
+is equivalent to 1 |> x -> [x, 3, sqrt(36) |> y -> y/2]. 
 
 Examples: 
 ```julia-repl
