@@ -1,5 +1,6 @@
 # README
-Dynamic Pipes is designed to best replicate magrittr's pipe, `%>%`, from R in Julia. The below R code
+ 
+Dynamic Pipes is designed to best replicate magrittr's pipe operator, `%>%`, from R in Julia. The below R code
 ```R
 library(tidyverse)
 
@@ -31,8 +32,8 @@ starwars_summary = starwars |>
 
 ## `@>` 
 This macro creates an anonymous function using similar rewriting rules as R's `%>%`. The following rules apply to macros and functions. 
-
-1. Underscore are used to represent the argument that is passed into the function. Hence `2 |> @> sqrt(_)` is equivalent to `2 |> x -> sqrt(x)` which is equivalent to `sqrt(2)`.
+1. Whatever is on the left of a `|>` or `.|>` is passed into the function of the right of the `|>` or `.|>`.
+1. Underscores are used to represent the argument that is passed into the function. Hence `2 |> @> sqrt(_)` is equivalent to `2 |> x -> sqrt(x)` which is equivalent to `sqrt(2)`.
 2. If there is no underscore then the argument is assumed the be the first argument of the function call. Hence, `2 |> @> +(2)` is equivalent to `+(2, 2)`. The following lines,
     ```julia
     2 |> 
@@ -69,6 +70,12 @@ This macro creates an anonymous function using similar rewriting rules as R's `%
         x -> [√1, √x, 3 |> y -> √y] |>
         x -> sum(x)
     ```
+5. If the first element in a sequency of pipe charecters does not contain an underscore then a new pipe is formed. So
+    ```julia
+    2 |>
+        @>  [_, 3, 4 |> _/2]
+    ```
+    is equivalent to `[2, 3, 4/2]` not `[2, 3, 2/2]`.
     
 Like [Chain.jl](https://github.com/jkrumbiegel/Chain.jl) the `@>` macro also supports `begin ... end` block syntax so you don't have to keep typing `|>`. Hence,
 ```julia
@@ -83,6 +90,21 @@ is equivalent to
 2 |> 
     @>  _ + 2 |>
         sqrt()
+```
+Begin end block syntax can only be used to define the outermost pipe so 
+```julia
+2 |>
+    @> begin
+        [_, 3, begin 
+                4 
+                _/2
+            end]
+    end
+```
+is not equivalent to  
+```julia
+    2 |>
+        @>  [_, 3, 4 |> _/2]
 ```
 ## `@>>`
 The package also contains a `@>>` macro that follows most of the same rules as `@>` only it is used at the beginning of pipes.
@@ -131,21 +153,3 @@ are equivalent to
         sqrt()
 ```
 .
-## TODOs/Upcoming Features
-1. Implement all of [Chain.jl](https://github.com/jkrumbiegel/Chain.jl)'s functionality in `@>` such as the `@aside` macro. Then `@>>` can simply call `@chain` when acting on blocks
-2. Allow the `⇒` character to be used in place of `|>` in the macros, example below.
-   ```julia
-    using DataFrames, DataFramesMeta, DynamicPipe, Statistics
-    # assuming the data is already loaded in
-
-    starwars_summary = starwars |>
-        @>  groupby(:species) ⇒
-            @combine(N = length(:species)
-                    ,mass = mean(:mass |> skipmissing)) ⇒
-            @where(:N .> 1
-                   ,:mass .> 50) ⇒
-            @transform(proportion = :N ./ sum(:N)) ⇒
-            @orderby(-:proportion)
-    ```
-    This gives greater visual distinction between what is a normal pipe and what will be rewritten.
-3. Add a VS code code snippet to more easily type `⇒`. `\>` seems a good choice. 
