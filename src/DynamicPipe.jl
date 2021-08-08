@@ -562,7 +562,7 @@ macro >>(first_arg, pipe::Expr)
     end
     error("When @>> is acting on 2 arguments the second argument must be a \"begin ... end\" block expression.")
 end
-@>>
+
 # below should have the same docstring as @>>(first_arg, pipe::Expr)
 """
     @>>(first_arg, pipe::Expr)
