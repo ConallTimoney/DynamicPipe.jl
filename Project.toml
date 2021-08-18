@@ -1,7 +1,7 @@
 name = "DynamicPipe"
 uuid = "e2608387-6d34-4676-ab1d-f98b51cb1878"
 authors = ["Conall Timoney <conalltimoney@gmail.com>"]
-version = "0.1.1"
+version = "0.2.0"
 
 [compat]
 julia = "1"
