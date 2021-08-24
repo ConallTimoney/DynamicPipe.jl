@@ -1,6 +1,6 @@
 # README
  
-Dynamic Pipes is designed to best replicate magrittr's pipe operator, `%>%`, from R in Julia. The below R code
+DynamicPipe is designed to best replicate magrittr's pipe operator, `%>%`, from R in Julia. The below R code
 ```R
 library(tidyverse)
 
